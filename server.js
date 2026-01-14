@@ -6,16 +6,15 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
+  path: "/socket.io",
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
   }
 });
 
-// In-memory code store (free + simple)
 const activeCodes = new Map();
 
-// Helper: 4-digit code
 function generateCode() {
   return Math.floor(1000 + Math.random() * 9000).toString();
 }
@@ -27,7 +26,6 @@ app.get("/", (req, res) => {
 io.on("connection", (socket) => {
   console.log("Connected:", socket.id);
 
-  // Client asks for its own code
   socket.on("request-code", () => {
     let code;
     do {
@@ -36,35 +34,19 @@ io.on("connection", (socket) => {
 
     activeCodes.set(code, socket.id);
     socket.join(code);
-
     socket.emit("your-code", code);
   });
 
-  // Client wants to connect to another code
   socket.on("join-code", (code) => {
     if (activeCodes.has(code)) {
       socket.join(code);
       socket.emit("join-success", code);
       socket.to(code).emit("peer-joined");
     } else {
-      socket.emit("join-failed", "Invalid or expired code");
+      socket.emit("join-failed", "Invalid code");
     }
   });
 
-  // WebRTC signaling
-  socket.on("offer", (data) => {
-    socket.to(data.room).emit("offer", data.offer);
-  });
-
-  socket.on("answer", (data) => {
-    socket.to(data.room).emit("answer", data.answer);
-  });
-
-  socket.on("ice-candidate", (data) => {
-    socket.to(data.room).emit("ice-candidate", data.candidate);
-  });
-
-  // Drawing / marking sync
   socket.on("draw", (data) => {
     socket.to(data.room).emit("draw", data);
   });
@@ -74,9 +56,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("Disconnected:", socket.id);
-
-    // Remove code if owner disconnects
     for (let [code, id] of activeCodes.entries()) {
       if (id === socket.id) {
         activeCodes.delete(code);
